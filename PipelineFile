@@ -1,0 +1,244 @@
+#!groovy
+
+@Library('devops@master') _
+
+//func from shareibrary
+def tools = new org.devops.tools()
+def build = new org.devops.build()
+def toemail = new org.devops.toemail()
+
+
+//命名空间
+namespace="${namespace}"
+
+//获取job工作目录
+job_workspace="/home/jenkins/workspace"
+
+
+//镜像仓库地址
+harborUrl="${harborUrl}"
+
+//harbor地址
+harbor="${harborUrl}".split("/")[0]
+
+//harbor用户
+harborUser="${harborUser}"
+
+//harbor密码
+harborPass="${harborPass}"
+
+//镜像名称
+imageName="${gitUrl}".split("/")[3]
+imageName="${imageName}".split(".git")[0]
+
+
+//env
+String workspace = "${job_workspace}/${namespace}/${imageName}"
+String buildType = "${env.buildType}"
+//String buildShell = "${env.buildShell}"
+String gitUrl = "${env.gitUrl}"
+String branchName = "${env.branchName}"
+String namespace = "${env.namespace}"
+
+
+
+
+
+
+
+
+pipeline{
+    
+    agent { node {  label "jenkins-kubesphere-agent"   //指定运行节点的标签或者名称
+                    customWorkspace "${workspace}"   //指定运行工作目录（可选）
+
+            }
+    }
+    
+    
+   options {
+        timestamps()  //日志会有时间
+        //skipDefaultCheckout()  //删除隐式checkout scm语句
+       // disableConcurrentBuilds() //禁止并行
+        timeout(time: 1, unit: 'HOURS')  //流水线超时设置1h
+    }
+    
+
+
+   environment {
+       //docker build  report TAG
+       imageTag= sh returnStdout: true ,script: "date +%Y%m%d%H%M%S-${namespace}"
+       harbor= sh returnStdout: true ,script: "echo -n ${harbor}"
+       imageName= sh returnStdout: true ,script: "echo -n ${imageName}"
+
+   }
+
+//流水线的阶段
+stages{
+
+
+
+    //阶段2 获取代码
+    stage("拉取源码"){
+        steps{
+            script{
+                   println("${imageName}")
+                   tools.PrintMes("获取代码","green")
+                 
+                   checkout([$class: 'GitSCM', branches: [[name: "${branchName}"]],
+                                        doGenerateSubmoduleConfigurations: false,
+                                        extensions: [],
+                                        submoduleCfg: [],
+                                        userRemoteConfigs: [[credentialsId: '27a33625-98f5-4f1f-8498-58cb95e4b3d7', url: "${gitUrl}"]]])
+                sh label: '', script: 'pwd'
+                
+            }
+        }
+    }
+    
+ 
+    
+    //阶段3 Build
+    stage("Build"){
+        steps{
+           script{
+                   tools.PrintMes("执行打包","green")
+                   //build.Build(buildType,buildShell)
+                   build.Build(buildType,namespace)
+                   
+                   
+            }
+        }
+    } 
+
+
+
+    //阶段 打包镜像
+    stage("打包镜像"){
+            steps{
+                script{
+				tools.PrintMes("打包镜像","green")
+				//打包api镜像
+                sh label: '', script: 'docker build -t ${harborUrl}/${imageName}:${imageTag} . '
+           
+                }
+            }
+    }
+   
+   
+      stage("上传镜像"){
+            steps{
+                script{
+				tools.PrintMes("上传镜像","green")
+                 //上传api镜像    
+                 sh label: '', script: '''
+                        echo ${harbor}
+                        docker login --username=${harborUser} --password=${harborPass} ${harbor}
+                        docker push ${harborUrl}/${imageName}:${imageTag}
+                  '''
+                                
+                }
+            }
+    }
+
+
+
+    //阶段7 自动发布
+    stage("发布"){
+            steps{
+                script{
+				tools.PrintMes("自动发布","green")
+
+
+//发布training-back-develop-api
+				sh label: '', script: '''cat > ${imageName}.yaml  <<EOF
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${imageName}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ${imageName}
+  template:
+    metadata:
+      labels:
+        app: ${imageName}
+    spec:
+      hostAliases:
+        - hostnames:
+          - kafka1
+          ip: 10.10.110.166
+        - hostnames:
+          - kafka2
+          ip: 10.10.110.167
+        - hostnames:
+          - kafka3
+          ip: 10.10.110.168
+      containers:
+      - image: ${harborUrl}/${imageName}:${imageTag}
+        imagePullPolicy: IfNotPresent
+        name: ${imageName}
+        ports:
+        - containerPort: 8080
+          name: web
+          protocol: TCP
+        resources:
+          limits:
+            cpu: 1000m
+            memory: 2Gi
+          requests:
+            cpu: 1000m
+            memory: 2Gi
+EOF
+
+
+ kubectl apply -f  ${imageName}.yaml -n ${namespace}
+'''
+
+                }
+            }
+    }
+
+   
+
+
+
+
+}
+//阶段8 构建结束后做的事情
+post {
+    always{
+        script{
+ 
+            tools.PrintMes("清理工作目录","green")
+            //deleteDir()
+           
+           //sh label: '', script: 'rm -rf target/*.jar*'
+        }
+    }
+        
+    success{
+        script{
+             tools.PrintMes("流水线构建成功","green")
+             //toemail.Email("流水线构建成功","${emailUserList}","${BUILD_USER}","${SuccessRateValue}","${coverageRateValue}","${smellsValue}","${bugsValue}","${vulnerabilitiesValue}","${duplicatedValue}","${junitUrl}","${jacocoUrl}","${sonarqubeUrl}")
+        }
+        
+    }
+    failure{
+        script{
+            tools.PrintMes("流水线构建失败","red")
+            //toemail.Email("流水线构建失败","${emailUserList}","${BUILD_USER}","${SuccessRateValue}","${coverageRateValue}","${smellsValue}","${bugsValue}","${vulnerabilitiesValue}","${duplicatedValue}","${junitUrl}","${jacocoUrl}","${sonarqubeUrl}")
+        }
+    }
+        
+    aborted{
+        script{
+            tools.PrintMes("流水线构建取消","red")
+           // toemail.Email("流水线构建取消了","${emailUserList}","${BUILD_USER}","${SuccessRateValue}","${coverageRateValue}","${smellsValue}","${bugsValue}","${vulnerabilitiesValue}","${duplicatedValue}","${junitUrl}","${jacocoUrl}","${sonarqubeUrl}")
+        }
+        
+    }
+}
+}
