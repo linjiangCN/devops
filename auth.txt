@@ -1,0 +1,5 @@
+otpauth://totp/CMDB?secret=LE2VU6DGM43WOU2TJI4FC22SHFKEOU2KIMZGORDJKFRHQR2EKBYXQTRW&digits=6&icon=WinAuth
+otpauth://totp/%e5%b0%8f%e9%99%a2%e5%a0%a1%e5%9e%92%e6%9c%ba?secret=S36JEZGXBYWFWFPB&digits=6&icon=WinAuth
+otpauth://totp/IM?secret=O242LVK5ZI4VTJH3&digits=6&icon=WinAuth
+otpauth://totp/PLDT?secret=7YMAJCEISSMZFQ44&digits=6&icon=WinAuth
+otpauth://totp/kubilai?secret=FIE6DL24S2SWPKCH&digits=6&icon=WinAuth
